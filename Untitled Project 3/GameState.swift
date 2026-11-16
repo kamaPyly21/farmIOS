@@ -15,6 +15,7 @@ enum Item: String, CaseIterable, Identifiable {
     case mutton
     case beef
     case coal
+    case pie
     
     var id: String { rawValue }
     var emoji: String {
@@ -31,6 +32,7 @@ enum Item: String, CaseIterable, Identifiable {
         case .beef: return "🥩"
         case .coal: return "🪨"
         case .cheese: return "🧀"
+        case .pie: return "🥧"
         }
     }
     var price: Int {
@@ -47,6 +49,7 @@ enum Item: String, CaseIterable, Identifiable {
         case .beef: return 320
         case .coal: return 0
         case .cheese: return Item.milk.price * 5
+        case .pie: return 100
         }
     }
     var sellable: Bool { self != .coal }
@@ -215,12 +218,23 @@ final class GameState: ObservableObject {
     @Published var dairyTarget = 10
 
     private var dairyDisplayedSecond = -1
+    // MARK: - Bakery upgrades and pies
+
+    @Published var bakeryLevel = 1
+
+    @Published var pieQueue = 0
+    @Published var pieFinishAt: Double = 0
+    @Published var pieSeconds = 0
+    @Published var pieProgress: Double = 0
+
+    private var pieBatchDuration: Double = 120
+    private var breadBatchDuration: Double = 0
 
     init() {
         let d = UserDefaults.standard
         gardenerAutoPlant =
-            d.object(forKey: "gardenerAutoPlant") as? Bool ?? false
-
+        d.object(forKey: "gardenerAutoPlant") as? Bool ?? false
+        
         gardenerReserve = max(
             0,
             d.object(forKey: "gardenerReserve") as? Int ?? 100
@@ -245,42 +259,96 @@ final class GameState: ObservableObject {
         mineStart = d.double(forKey: "mineStart")
         mineEnd = d.double(forKey: "mineEnd")
         restEnd = d.double(forKey: "restEnd")
-
+        
+        
         // MARK: Загрузка сыроварни
-
+        
         dairyLevel = min(
             3,
             max(0, d.integer(forKey: "dairyLevel"))
         )
-
+        
         dairyQueue = max(
             0,
             d.integer(forKey: "dairyQueue")
         )
-
+        
         dairyReady = max(
             0,
             d.integer(forKey: "dairyReady")
         )
-
+        
         dairyFinishAt = d.double(forKey: "dairyFinishAt")
-
+        
         dairyWorkerHired = d.bool(forKey: "dairyWorkerHired")
         dairyAuto = d.bool(forKey: "dairyAuto")
-
+        
         dairyMilkReserve = max(
             0,
             d.object(forKey: "dairyMilkReserve") as? Int ?? 5
         )
-
+        
         dairyTarget = max(
             1,
             d.object(forKey: "dairyTarget") as? Int ?? 10
         )
-
+        
+        // Уровень пекарни.
+        bakeryLevel = min(
+            3,
+            max(
+                1,
+                d.object(forKey: "bakeryLevel") as? Int ?? 1
+            )
+        )
+        
+        // Сохраняем прогресс хлеба между запусками.
+        bakeAcc = max(0, d.double(forKey: "breadElapsed"))
+        
+        breadBatchDuration = max(
+            1,
+            d.object(forKey: "breadBatchDuration") as? Double
+            ?? breadDuration
+        )
+        
+        // Загрузка очереди пирогов.
+        pieFinishAt = d.double(forKey: "pieFinishAt")
+        
+        pieBatchDuration = max(
+            1,
+            d.object(forKey: "pieBatchDuration") as? Double
+            ?? 120
+        )
+        
+        var migratedReadyPie = false
+        
+        if d.object(forKey: "pieQueue") != nil {
+            pieQueue = max(0, d.integer(forKey: "pieQueue"))
+        } else {
+            // Перенос из старой системы одного пирога.
+            if d.bool(forKey: "pieReady") {
+                inventory[.pie, default: 0] += 1
+                migratedReadyPie = true
+                pieQueue = 0
+                pieFinishAt = 0
+            } else {
+                pieQueue = pieFinishAt > 0 ? 1 : 0
+            }
+        }
+        
+        // Сначала сохраняем перенесённое состояние.
+        // Старый готовый пирог повторно не начислится.
+        save()
+        d.removeObject(forKey: "pieReady")
+        
+        if migratedReadyPie {
+            QuestState.shared.recordHarvest(.pie)
+        }
+        
+        // Все данные уже загружены — обновляем производство.
         tickDairy(allowAutomation: false)
+        tickPie()
     }
-
 
     func save() {
         let d = UserDefaults.standard
@@ -304,6 +372,15 @@ final class GameState: ObservableObject {
         d.set(dairyAuto, forKey: "dairyAuto")
         d.set(dairyMilkReserve, forKey: "dairyMilkReserve")
         d.set(dairyTarget, forKey: "dairyTarget")
+        // Пекарня.
+        d.set(bakeryLevel, forKey: "bakeryLevel")
+        d.set(bakeAcc, forKey: "breadElapsed")
+        d.set(breadBatchDuration, forKey: "breadBatchDuration")
+
+        // Очередь пирогов.
+        d.set(pieQueue, forKey: "pieQueue")
+        d.set(pieFinishAt, forKey: "pieFinishAt")
+        d.set(pieBatchDuration, forKey: "pieBatchDuration")
     }
 
     // MARK: Stats
@@ -484,19 +561,76 @@ final class GameState: ObservableObject {
 
         return revenue
     }
-    // MARK: Bakery
-    var canBake: Bool {
-        count(.wheat) >= Balance.breadWheat && count(.coal) >= Balance.coalPerBatch
-    }
+        // MARK: - Bakery
 
-    func queueBake() {
-        guard canBake else { return }
-        inventory[.wheat, default: 0] -= Balance.breadWheat
-        inventory[.coal, default: 0] -= Balance.coalPerBatch
-        bakeQueue += 1
-        save()
-    }
-    // MARK: Dairy
+        var bakeryTimeMultiplier: Double {
+            switch bakeryLevel {
+            case 2:
+                return 0.8
+            case 3:
+                return 0.6
+            default:
+                return 1.0
+            }
+        }
+
+        var breadDuration: Double {
+            max(1, Balance.bakeTime * bakeryTimeMultiplier)
+        }
+
+        var pieDuration: Double {
+            120 * bakeryTimeMultiplier
+        }
+
+        var bakeryUpgradeCost: Int? {
+            switch bakeryLevel {
+            case 1:
+                return 1500
+            case 2:
+                return 3000
+            default:
+                return nil
+            }
+        }
+
+        func upgradeBakery() {
+            guard let cost = bakeryUpgradeCost,
+                  coins >= cost else {
+                return
+            }
+
+            coins -= cost
+            bakeryLevel += 1
+
+            // Начатые партии сохраняют свою длительность.
+            // Новая скорость применяется к следующим.
+            save()
+        }
+
+        var canBake: Bool {
+            count(.wheat) >= Balance.breadWheat
+                && count(.coal) >= Balance.coalPerBatch
+                && bakeQueue < Int.max
+        }
+
+        func queueBake() {
+            guard canBake else { return }
+
+            let wasIdle = bakeQueue == 0
+
+            inventory[.wheat, default: 0] -= Balance.breadWheat
+            inventory[.coal, default: 0] -= Balance.coalPerBatch
+            bakeQueue += 1
+
+            if wasIdle {
+                bakeAcc = 0
+                bakeProgress = 0
+                breadBatchDuration = breadDuration
+            }
+
+            save()
+        }
+        // MARK: Dairy
 
     var dairyOwned: Bool {
         dairyLevel > 0
@@ -601,13 +735,21 @@ final class GameState: ObservableObject {
         save()
     }
 
-    func collectCheese() {
-        guard dairyReady > 0 else { return }
+        func collectCheese() {
+            guard dairyReady > 0 else { return }
 
-        inventory[.cheese, default: 0] += dairyReady
-        dairyReady = 0
-        save()
-    }
+            let quantity = dairyReady
+
+            inventory[.cheese, default: 0] += quantity
+            dairyReady = 0
+
+            save()
+
+            QuestState.shared.recordHarvest(
+                .cheese,
+                quantity: quantity
+            )
+        }
 
     private func tickDairy(allowAutomation: Bool = true) {
         guard dairyOwned else { return }
@@ -640,9 +782,16 @@ final class GameState: ObservableObject {
         if allowAutomation && dairyWorkerHired && dairyAuto {
             // Сыровар переносит готовую продукцию на склад.
             if dairyReady > 0 {
-                inventory[.cheese, default: 0] += dairyReady
+                let quantity = dairyReady
+
+                inventory[.cheese, default: 0] += quantity
                 dairyReady = 0
                 changed = true
+
+                QuestState.shared.recordHarvest(
+                    .cheese,
+                    quantity: quantity
+                )
             }
 
             // В целевой запас включаем уже заказанные партии,
@@ -679,7 +828,119 @@ final class GameState: ObservableObject {
             save()
         }
     }
+        // MARK: - Pie production
 
+        var pieIsBaking: Bool {
+            pieQueue > 0
+        }
+
+        var canBakePie: Bool {
+            count(.wheat) >= 2
+                && count(.milk) >= 1
+                && count(.egg) >= 1
+                && count(.coal) >= 1
+                && pieQueue < Int.max
+        }
+
+        func startPie() {
+            guard canBakePie else { return }
+
+            let wasIdle = pieQueue == 0
+
+            inventory[.wheat] = count(.wheat) - 2
+            inventory[.milk] = count(.milk) - 1
+            inventory[.egg] = count(.egg) - 1
+            inventory[.coal] = count(.coal) - 1
+
+            pieQueue += 1
+
+            if wasIdle {
+                pieBatchDuration = pieDuration
+
+                pieFinishAt =
+                    Date().timeIntervalSince1970 + pieBatchDuration
+
+                pieSeconds = Int(ceil(pieBatchDuration))
+                pieProgress = 0
+            }
+
+            save()
+        }
+
+        private func tickPie() {
+            guard pieQueue > 0 else {
+                if pieSeconds != 0 {
+                    pieSeconds = 0
+                }
+
+                if pieProgress != 0 {
+                    pieProgress = 0
+                }
+
+                return
+            }
+
+            let now = Date().timeIntervalSince1970
+            var completed = 0
+
+            if pieFinishAt <= 0 {
+                pieBatchDuration = pieDuration
+                pieFinishAt = now + pieBatchDuration
+                save()
+            }
+
+            // Последовательно завершаем оплаченные партии.
+            while pieQueue > 0 && now >= pieFinishAt {
+                let finishedAt = pieFinishAt
+
+                pieQueue -= 1
+                inventory[.pie, default: 0] += 1
+                completed += 1
+
+                if pieQueue > 0 {
+                    pieBatchDuration = pieDuration
+                    pieFinishAt = finishedAt + pieBatchDuration
+                } else {
+                    pieFinishAt = 0
+                }
+            }
+
+            let seconds = pieQueue > 0
+                ? max(0, Int(ceil(pieFinishAt - now)))
+                : 0
+
+            if pieSeconds != seconds {
+                pieSeconds = seconds
+            }
+
+            let progress: Double
+
+            if pieQueue > 0 {
+                let remaining = max(0, pieFinishAt - now)
+                let raw = 1 - remaining / max(1, pieBatchDuration)
+
+                progress = (
+                    min(1, max(0, raw)) * 100
+                ).rounded(.down) / 100
+            } else {
+                progress = 0
+            }
+
+            if pieProgress != progress {
+                pieProgress = progress
+            }
+
+            if completed > 0 {
+                save()
+
+                QuestState.shared.recordHarvest(
+                    .pie,
+                    quantity: completed
+                )
+            }
+        }
+
+    
     // MARK: Mine
     func startMineTrip() {
         guard minePhase == .idle else { return }
@@ -726,30 +987,61 @@ final class GameState: ObservableObject {
         }
     }
 
-    private func tickBake(_ dt: Double) {
-        guard bakeQueue > 0 else {
-            if bakeProgress != 0 { bakeProgress = 0 }
-            bakeAcc = 0
-            return
-        }
-        bakeAcc += dt
-        if bakeAcc >= Balance.bakeTime {
-            bakeAcc = 0
-            bakeQueue -= 1
-            inventory[.bread, default: 0] += 1
-            bakeProgress = 0
-            save()
-        } else {
-            let step = (bakeAcc / Balance.bakeTime * 20).rounded(.down) / 20
-            if step != bakeProgress { bakeProgress = step }
-        }
-    }
+   private func tickBake(_ dt: Double) {
+            guard bakeQueue > 0 else {
+                if bakeProgress != 0 {
+                    bakeProgress = 0
+                }
 
+                bakeAcc = 0
+                return
+            }
+
+            if breadBatchDuration <= 0 {
+                breadBatchDuration = breadDuration
+            }
+
+            let previousSecond = Int(bakeAcc)
+            bakeAcc += max(0, dt)
+
+            var completed = 0
+
+            while bakeQueue > 0 && bakeAcc >= breadBatchDuration {
+                bakeAcc -= breadBatchDuration
+                bakeQueue -= 1
+
+                inventory[.bread, default: 0] += 1
+                completed += 1
+
+                if bakeQueue > 0 {
+                    breadBatchDuration = breadDuration
+                } else {
+                    bakeAcc = 0
+                }
+            }
+
+            let progress = bakeQueue > 0
+                ? (
+                    min(1, bakeAcc / max(1, breadBatchDuration)) * 100
+                ).rounded(.down) / 100
+                : 0
+
+            if bakeProgress != progress {
+                bakeProgress = progress
+            }
+
+            // Сохраняем примерно раз в игровую секунду
+            // и при завершении партии.
+            if completed > 0 || Int(bakeAcc) != previousSecond {
+                save()
+            }
+        }
     /// Вызывается из GameScene.update каждый кадр.
     func tick(_ dt: Double) {
         tickBake(dt)
         tickMine()
         tickDairy()
+        tickPie()
     }
 
     // MARK: Cheats
@@ -784,6 +1076,8 @@ final class GameState: ObservableObject {
     func cheatFinishBake() {
         inventory[.bread, default: 0] += bakeQueue
         bakeQueue = 0
+        bakeAcc = 0
+        bakeProgress = 0
         save()
     }
 

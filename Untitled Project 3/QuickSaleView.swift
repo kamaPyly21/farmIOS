@@ -169,6 +169,7 @@ struct QuickSaleView: View {
             case .beef: return "Говядина"
             case .coal: return "Уголь"
             case .cheese: return "Сыр"
+            case .pie: return "пирог"
             }
         }
     }

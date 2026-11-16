@@ -122,19 +122,6 @@ struct GameContainer: View {
                 .tint(.brown)
 
                 Spacer()
-                Button {
-                    sheet = .dairy
-                } label: {
-                    Text("Сыроварня")
-                        .font(.subheadline.bold())
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            .regularMaterial,
-                            in: Capsule()
-                        )
-                }
-                .tint(.orange)
             }
             HStack(spacing: 6) {
                 Text("🪙 \(state.coins)")
@@ -279,76 +266,127 @@ struct BakeryView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Рецепт") {
-                    Text("\(Balance.breadWheat) 🌾 + \(Balance.coalPerBatch) 🪨 → 1 🍞  (\(Int(Balance.bakeTime)) с)")
-                        .font(.headline)
-                    Text("Хлеб стоит \(Item.bread.price) 🪙 против \(Balance.breadWheat * Item.wheat.price) 🪙 за пшеницу")
-                        .font(.caption).foregroundColor(.secondary)
-                }
-                Section("Топливо: 🪨 \(state.count(.coal))") {
-                    Button("Купить уголь — \(Balance.coalPrice) 🪙") { state.buyCoal() }
-                        .buttonStyle(.bordered)
-                        .disabled(state.coins < Balance.coalPrice)
-                    Text("Бесплатный уголь добывают в шахте (левый верхний угол карты).")
-                        .font(.caption).foregroundColor(.secondary)
-                }
-                Section("Печь") {
-                    Text("Пшеница: \(state.count(.wheat))   Уголь: \(state.count(.coal))")
-                    Text("В очереди: \(state.bakeQueue)")
-                    if state.bakeQueue > 0 {
-                        ProgressView(value: state.bakeProgress)
-                    }
-                    Button("Испечь хлеб") { state.queueBake() }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(!state.canBake)
-                }
-                Section("Готово") {
-                    Text("🍞 на складе: \(state.count(.bread))")
-                }
+                upgradeSection
+                fuelSection
+                breadSection
+                pieSection
             }
-            .navigationTitle("🍞 Пекарня")
+            .navigationTitle("Пекарня")
         }
         .presentationDetents([.medium, .large])
     }
-}
 
-struct MineView: View {
-    @ObservedObject var state: GameState
+    private var upgradeSection: some View {
+        Section("Уровень пекарни") {
+            Text("Уровень \(state.bakeryLevel) из 3")
+                .font(.headline)
 
-    var body: some View {
-        NavigationStack {
-            List {
-                Section("Шахта") {
-                    Text("⛏ Кирка: \(state.pickaxeName) (ур. \(state.level(.pickaxe)))")
-                        .font(.headline)
-                    Text("Поход: \(mmss(Int(state.tripDuration)))  •  добыча: +\(state.mineYield) 🪨  •  отдых: \(mmss(Int(Balance.mineRestTime)))")
-                        .font(.caption).foregroundColor(.secondary)
-                    Text("Уголь на складе: \(state.count(.coal))")
+            Text(
+                "Хлеб: \(mmss(Int(ceil(state.breadDuration))))"
+                + " · Пирог: \(mmss(Int(ceil(state.pieDuration))))"
+            )
+
+            Text(
+                "Уровень сокращает время следующих партий. "
+                + "Хлеб и пироги выпекаются в отдельных очередях."
+            )
+            .font(.caption)
+            .foregroundColor(.secondary)
+
+            if let cost = state.bakeryUpgradeCost {
+                Button("Улучшить — \(cost) монет") {
+                    state.upgradeBakery()
                 }
-                Section("Статус") {
-                    if state.minePhase == .idle {
-                        Button("Отправиться в шахту") { state.startMineTrip() }
-                            .buttonStyle(.borderedProminent)
-                    } else if state.minePhase == .mining {
-                        Text("Шахтёр копает… осталось \(mmss(state.mineSeconds))")
-                        ProgressView(value: state.mineProgress)
-                    } else {
-                        Text("Шахтёр отдыхает: \(mmss(state.mineSeconds))")
-                    }
-                }
-                Section("Улучшение") {
-                    if state.level(.pickaxe) >= Upgrade.pickaxe.maxLevel {
-                        Text("Кирка максимального уровня")
-                    } else {
-                        Button("Улучшить кирку — \(state.cost(of: .pickaxe)) 🪙") { state.buy(.pickaxe) }
-                            .buttonStyle(.bordered)
-                            .disabled(state.coins < state.cost(of: .pickaxe))
-                    }
-                }
+                .buttonStyle(.borderedProminent)
+                .disabled(state.coins < cost)
+            } else {
+                Text("Максимальный уровень")
+                    .foregroundColor(.secondary)
             }
-            .navigationTitle("⛏ Шахта")
         }
-        .presentationDetents([.medium, .large])
+    }
+
+    private var fuelSection: some View {
+        Section("Топливо") {
+            Text("Уголь на складе: \(state.count(.coal))")
+
+            Button("Купить уголь — \(Balance.coalPrice) монет") {
+                state.buyCoal()
+            }
+            .buttonStyle(.bordered)
+            .disabled(state.coins < Balance.coalPrice)
+
+            Text("Уголь также можно добыть в шахте.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private var breadSection: some View {
+        Section("Хлеб") {
+            Text(
+                "\(Balance.breadWheat) пшеницы"
+                + " + \(Balance.coalPerBatch) угля → 1 хлеб"
+            )
+            .font(.headline)
+
+            Text("Пшеница на складе: \(state.count(.wheat))")
+
+            Text("В очереди, включая текущий: \(state.bakeQueue)")
+
+            if state.bakeQueue > 0 {
+                ProgressView(value: state.bakeProgress)
+            }
+
+            Button("Добавить хлеб в очередь") {
+                state.queueBake()
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!state.canBake)
+
+            Text("Готового хлеба: \(state.count(.bread))")
+
+            Text("Базовая цена: \(Item.bread.price) монет")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private var pieSection: some View {
+        Section("Пироги") {
+            Text("2 пшеницы + 1 молоко + 1 яйцо + 1 уголь")
+                .font(.headline)
+
+            Text(
+                "Пшеница: \(state.count(.wheat))"
+                + " · Молоко: \(state.count(.milk))"
+                + " · Яйца: \(state.count(.egg))"
+            )
+            .font(.caption)
+
+            Text("В очереди, включая текущий: \(state.pieQueue)")
+
+            if state.pieIsBaking {
+                Text("До следующего пирога: \(mmss(state.pieSeconds))")
+                ProgressView(value: state.pieProgress)
+            }
+
+            Button("Добавить пирог в очередь") {
+                state.startPie()
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!state.canBakePie)
+
+            Text("Готовых пирогов: \(state.count(.pie))")
+
+            Text("Базовая цена: \(Item.pie.price) монет")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            Text("Готовая выпечка автоматически поступает на склад.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
     }
 }
 
@@ -389,5 +427,86 @@ struct CheatsView: View {
             .navigationTitle("🛠 Читы")
         }
         .presentationDetents([.medium, .large])
+    }
+}
+struct MineView: View {
+    @ObservedObject var state: GameState
+
+    var body: some View {
+        NavigationStack {
+            List {
+                mineInfoSection
+                statusSection
+                upgradeSection
+            }
+            .navigationTitle("Шахта")
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private var mineInfoSection: some View {
+        Section("Шахта") {
+            Text(
+                "Кирка: \(state.pickaxeName)"
+                + " (ур. \(state.level(.pickaxe)))"
+            )
+            .font(.headline)
+
+            Text(
+                "Поход: \(mmss(Int(state.tripDuration)))"
+                + " · Добыча: \(state.mineYield) угля"
+                + " · Отдых: \(mmss(Int(Balance.mineRestTime)))"
+            )
+            .font(.caption)
+            .foregroundColor(.secondary)
+
+            Text("Уголь на складе: \(state.count(.coal))")
+        }
+    }
+
+    private var statusSection: some View {
+        Section("Статус") {
+            switch state.minePhase {
+            case .idle:
+                Button("Отправиться в шахту") {
+                    state.startMineTrip()
+                }
+                .buttonStyle(.borderedProminent)
+
+            case .mining:
+                Text(
+                    "Шахтёр копает… осталось "
+                    + mmss(state.mineSeconds)
+                )
+
+                ProgressView(value: state.mineProgress)
+
+            case .resting:
+                Text(
+                    "Шахтёр отдыхает: "
+                    + mmss(state.mineSeconds)
+                )
+            }
+        }
+    }
+
+    private var upgradeSection: some View {
+        Section("Улучшение") {
+            if state.level(.pickaxe) >= Upgrade.pickaxe.maxLevel {
+                Text("Кирка максимального уровня")
+                    .foregroundColor(.secondary)
+            } else {
+                Button(
+                    "Улучшить кирку — "
+                    + "\(state.cost(of: .pickaxe)) монет"
+                ) {
+                    state.buy(.pickaxe)
+                }
+                .buttonStyle(.bordered)
+                .disabled(
+                    state.coins < state.cost(of: .pickaxe)
+                )
+            }
+        }
     }
 }

@@ -1014,10 +1014,10 @@ final class GameScene: SKScene {
         let door = rect(44, 56, UIColor(red: 0.55, green: 0.33, blue: 0.2, alpha: 1), r: 4)
         door.position = CGPoint(x: 45, y: -35)
         b.addChild(door)
-        let sign = SKLabelNode(text: "🍞")
-        sign.fontSize = 44
+        let sign = SKLabelNode(text: "🍞 🥧")
+        sign.fontSize = 32
         sign.verticalAlignmentMode = .center
-        sign.position = CGPoint(x: -30, y: -5)
+        sign.position = CGPoint(x: -25, y: -5)
         sign.zPosition = 2
         b.addChild(sign)
         let roofPath = UIBezierPath()

@@ -15,17 +15,31 @@ enum FarmQuestKind: String, CaseIterable, Identifiable, Codable {
     case meat
     case wool
     case milk
+    case cheese
+    case pie
 
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 
     var title: String {
         switch self {
-        case .wheat: return "Урожай пшеницы"
-        case .eggs: return "Свежие яйца"
-        case .revenue: return "Успешная торговля"
-        case .meat: return "Мясная продукция"
-        case .wool: return "Мягкая шерсть"
-        case .milk: return "Свежее молоко"
+        case .wheat:
+            return "Урожай пшеницы"
+        case .eggs:
+            return "Свежие яйца"
+        case .revenue:
+            return "Успешная торговля"
+        case .meat:
+            return "Мясная продукция"
+        case .wool:
+            return "Мягкая шерсть"
+        case .milk:
+            return "Свежее молоко"
+        case .cheese:
+            return "Сырное дело"
+        case .pie:
+            return "Мастер пирогов"
         }
     }
 
@@ -43,6 +57,10 @@ enum FarmQuestKind: String, CaseIterable, Identifiable, Codable {
             return "Собери шерсть с овец"
         case .milk:
             return "Собери молоко с коров"
+        case .cheese:
+            return "Получи готовый сыр на склад"
+        case .pie:
+            return "Испеки пироги"
         }
     }
 
@@ -52,12 +70,18 @@ enum FarmQuestKind: String, CaseIterable, Identifiable, Codable {
 
     var firstTarget: Int {
         switch self {
-        case .wheat: return 10
-        case .eggs: return 5
-        case .revenue: return 100
-        case .meat: return 3
-        case .wool: return 5
-        case .milk: return 5
+        case .wheat:
+            return 10
+        case .eggs:
+            return 5
+        case .revenue:
+            return 100
+        case .meat:
+            return 3
+        case .wool, .milk:
+            return 5
+        case .cheese, .pie:
+            return 3
         }
     }
 
@@ -67,37 +91,56 @@ enum FarmQuestKind: String, CaseIterable, Identifiable, Codable {
         switch self {
         case .wheat:
             switch target {
-            case ..<50: step = 10
-            case ..<200: step = 25
-            case ..<500: step = 50
-            case ..<1000: step = 100
-            default: step = 250
+            case ..<50:
+                step = 10
+            case ..<200:
+                step = 25
+            case ..<500:
+                step = 50
+            case ..<1000:
+                step = 100
+            default:
+                step = 250
             }
 
         case .eggs, .wool, .milk:
             switch target {
-            case ..<25: step = 5
-            case ..<100: step = 10
-            case ..<250: step = 25
-            case ..<500: step = 50
-            default: step = 100
+            case ..<25:
+                step = 5
+            case ..<100:
+                step = 10
+            case ..<250:
+                step = 25
+            case ..<500:
+                step = 50
+            default:
+                step = 100
             }
 
-        case .meat:
+        case .meat, .cheese, .pie:
             switch target {
-            case ..<15: step = 3
-            case ..<50: step = 5
-            case ..<100: step = 10
-            default: step = 25
+            case ..<15:
+                step = 3
+            case ..<50:
+                step = 5
+            case ..<100:
+                step = 10
+            default:
+                step = 25
             }
 
         case .revenue:
             switch target {
-            case ..<500: step = 100
-            case ..<2000: step = 250
-            case ..<5000: step = 500
-            case ..<10000: step = 1000
-            default: step = 2500
+            case ..<500:
+                step = 100
+            case ..<2000:
+                step = 250
+            case ..<5000:
+                step = 500
+            case ..<10000:
+                step = 1000
+            default:
+                step = 2500
             }
         }
 
@@ -121,10 +164,13 @@ enum FarmQuestKind: String, CaseIterable, Identifiable, Codable {
 
         case .wool, .milk:
             return 15 + target * 3
+
+        case .cheese, .pie:
+            return 25 + target * 8
         }
     }
 }
-
+      
 struct FarmQuestProgress: Codable {
     var target: Int
     var progress: Int = 0
@@ -196,6 +242,12 @@ final class QuestState: ObservableObject {
 
         case .milk:
             addProgress(to: .milk, amount: quantity)
+
+        case .cheese:
+            addProgress(to: .cheese, amount: quantity)
+
+        case .pie:
+            addProgress(to: .pie, amount: quantity)
 
         default:
             break
