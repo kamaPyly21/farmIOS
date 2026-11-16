@@ -13,7 +13,7 @@ struct FarmApp: App {
 }
 
 enum ActiveSheet: String, Identifiable {
-    case shop, animals, bakery, mine, cheats
+    case shop, animals, bakery, mine, cheats, market
     var id: String { rawValue }
 }
 
@@ -44,6 +44,7 @@ struct GameContainer: View {
             case .bakery: BakeryView(state: state)
             case .mine: MineView(state: state)
             case .cheats: CheatsView(state: state)
+            case .market: MarketView()
             }
         }
         .onReceive(state.$bakeryOpen) { open in
@@ -59,6 +60,14 @@ struct GameContainer: View {
                 DispatchQueue.main.async {
                     sheet = .mine
                     state.mineOpen = false
+                }
+            }
+        }
+        .onReceive(state.$marketOpen) { open in
+            if open {
+                DispatchQueue.main.async {
+                    sheet = .market
+                    state.marketOpen = false
                 }
             }
         }
@@ -103,14 +112,16 @@ struct GameContainer: View {
                 .frame(height: 36)
                 .background(.ultraThinMaterial, in: Capsule())
 
-                Button { state.sellAll() } label: {
-                    Text("Продать +\(state.sellValue)")
+                Button {
+                    sheet = .market
+                } label: {
+                    Text("Прилавок")
                         .font(.subheadline.bold())
-                        .padding(.horizontal, 12).padding(.vertical, 8)
-                        .background(state.sellValue > 0 ? Color.green : Color.gray, in: Capsule())
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color.brown, in: Capsule())
                         .foregroundColor(.white)
                 }
-                .disabled(state.sellValue == 0)
             }
         }
     }

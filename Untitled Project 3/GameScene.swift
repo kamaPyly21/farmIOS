@@ -42,6 +42,8 @@ final class GameScene: SKScene {
     var animals: [AnimalRef] = []
     var plots: [Plot] = []
     var workers: [WorkerRef] = []
+    var stockkeepers: [WorkerRef] = []
+    var reservedAnimals = Set<ObjectIdentifier>()
     var reserved = Set<ObjectIdentifier>()
     var lockNodes: [String: SKNode] = [:]
     var lastCrop: Crop = .wheat
@@ -55,6 +57,7 @@ final class GameScene: SKScene {
     let barnPos = CGPoint(x: 2000, y: 1500)
     let bakeryPos = CGPoint(x: 1150, y: 1500)
     let minePos = CGPoint(x: 560, y: 1800)
+    let marketPos = CGPoint(x: 1850, y: 1800)
     let pondPos = CGPoint(x: 600, y: 1250)
     let pens: [AnimalType: CGRect] = [
         .chicken: CGRect(x: 1600, y: 900, width: 420, height: 260),
@@ -87,6 +90,7 @@ final class GameScene: SKScene {
         buildBarn()
         buildBakery()
         buildMine()
+        buildMarket()
         syncAnimals()
         syncWorkers()
         startSmoke()
@@ -105,117 +109,172 @@ final class GameScene: SKScene {
     }
 
     // MARK: - Gestures
-    @objc func handleTap(_ g: UITapGestureRecognizer) {
-        guard let v = view else { return }
-        let p = convertPoint(fromView: g.location(in: v))
 
-        for a in animals {
-            if let prod = a.product, hypot(prod.position.x - p.x, prod.position.y - p.y) < 40 {
-                collectProduct(a)
-                return
-            }
-        }
-        for a in animals where hypot(a.node.position.x - p.x, a.node.position.y - p.y) < 50 {
-            if !tryCare(a) { speak(a) }
-            return
-        }
-        if CGRect(x: minePos.x - 170, y: minePos.y - 100, width: 340, height: 260).contains(p) {
-            state.mineOpen = true
-            return
-        }
-        if CGRect(x: bakeryPos.x - 110, y: bakeryPos.y - 80, width: 220, height: 220).contains(p) {
-            state.bakeryOpen = true
-            return
-        }
-        for plot in plots {
-            let q = plot.node.position
-            if abs(q.x - p.x) < 30 && abs(q.y - p.y) < 30 {
-                tapPlot(plot)
-                return
-            }
-        }
-        for t in AnimalType.allCases where lockNodes["pen_" + t.rawValue] != nil && penRect(t).contains(p) {
-            if state.unlockPen(t) {
-                floatText("Загон открыт!", at: p)
-            } else {
-                floatText("Нужно \(t.penCost) 🪙", at: p)
-            }
-            return
-        }
-    }
+    @objc func handlePan(_ g: UIPanGestureRecognizer) {
         guard let v = view else { return }
+
         switch g.state {
         case .began:
             isPanning = true
             velocity = .zero
+
         case .changed:
             let t = g.translation(in: v)
             g.setTranslation(.zero, in: v)
+
             let dx = -t.x * cam.xScale
             let dy = t.y * cam.xScale
+
             cam.position.x += dx
             cam.position.y += dy
+
             velocity = CGVector(dx: dx, dy: dy)
             clampCamera()
+
         default:
             isPanning = false
         }
     }
 
     @objc func handlePinch(_ g: UIPinchGestureRecognizer) {
-        if g.state == .began { startScale = cam.xScale }
-        cam.setScale(min(2.6, max(0.45, startScale / g.scale)))
+        if g.state == .began {
+            startScale = cam.xScale
+        }
+
+        let newScale = min(
+            2.6,
+            max(0.45, startScale / g.scale)
+        )
+
+        cam.setScale(newScale)
         clampCamera()
     }
 
     @objc func handleTap(_ g: UITapGestureRecognizer) {
         guard let v = view else { return }
-        let p = convertPoint(fromView: g.location(in: v))
 
+        let p = convertPoint(fromView: g.location(in: v))
+        let marketArea = CGRect(
+            x: marketPos.x - 140,
+            y: marketPos.y - 130,
+            width: 280,
+            height: 250
+        )
+
+        if marketArea.contains(p) {
+            state.marketOpen = true
+            return
+        }
+
+        // Подбор продуктов, лежащих на земле.
         for a in animals {
-            if let prod = a.product, hypot(prod.position.x - p.x, prod.position.y - p.y) < 40 {
-                collectProduct(a)
+            if let product = a.product {
+                let distance = hypot(
+                    product.position.x - p.x,
+                    product.position.y - p.y
+                )
+
+                if distance < 40 {
+                    collectProduct(a)
+                    return
+                }
+            }
+        }
+
+        // Стрижка овец, дойка коров или реакция курицы.
+        for a in animals {
+            let distance = hypot(
+                a.node.position.x - p.x,
+                a.node.position.y - p.y
+            )
+
+            if distance < 50 {
+                if !tryCare(a) {
+                    speak(a)
+                }
                 return
             }
         }
-        for a in animals where hypot(a.node.position.x - p.x, a.node.position.y - p.y) < 50 {
-            speak(a)
-            return
-        }
-        if CGRect(x: minePos.x - 170, y: minePos.y - 100, width: 340, height: 260).contains(p) {
+
+        // Открытие окна шахты.
+        let mineArea = CGRect(
+            x: minePos.x - 170,
+            y: minePos.y - 100,
+            width: 340,
+            height: 260
+        )
+
+        if mineArea.contains(p) {
             state.mineOpen = true
             return
         }
-        if CGRect(x: bakeryPos.x - 110, y: bakeryPos.y - 80, width: 220, height: 220).contains(p) {
+
+        // Открытие окна пекарни.
+        let bakeryArea = CGRect(
+            x: bakeryPos.x - 110,
+            y: bakeryPos.y - 80,
+            width: 220,
+            height: 220
+        )
+
+        if bakeryArea.contains(p) {
             state.bakeryOpen = true
             return
         }
+
+        // Посадка, сбор урожая или покупка поля.
         for plot in plots {
             let q = plot.node.position
+
             if abs(q.x - p.x) < 30 && abs(q.y - p.y) < 30 {
                 tapPlot(plot)
                 return
             }
         }
-        for t in AnimalType.allCases where lockNodes["pen_" + t.rawValue] != nil && penRect(t).contains(p) {
-            if state.unlockPen(t) {
-                floatText("Загон открыт!", at: p)
-            } else {
-                floatText("Нужно \(t.penCost) 🪙", at: p)
+
+        // Покупка закрытого загона.
+        for type in AnimalType.allCases {
+            let lockKey = "pen_" + type.rawValue
+
+            if lockNodes[lockKey] != nil &&
+                penRect(type).contains(p) {
+
+                if state.unlockPen(type) {
+                    floatText("Загон открыт!", at: p)
+                } else {
+                    floatText(
+                        "Нужно \(type.penCost) 🪙",
+                        at: p
+                    )
+                }
+
+                return
             }
-            return
         }
     }
 
     func clampCamera() {
         let halfW = size.width * cam.xScale / 2
         let halfH = size.height * cam.yScale / 2
-        cam.position.x = halfW * 2 >= worldSize.width ? worldSize.width / 2
-            : min(max(cam.position.x, halfW), worldSize.width - halfW)
-        cam.position.y = halfH * 2 >= worldSize.height ? worldSize.height / 2
-            : min(max(cam.position.y, halfH), worldSize.height - halfH)
-    }
 
+        if halfW * 2 >= worldSize.width {
+            cam.position.x = worldSize.width / 2
+        } else {
+            cam.position.x = min(
+                max(cam.position.x, halfW),
+                worldSize.width - halfW
+            )
+        }
+
+        if halfH * 2 >= worldSize.height {
+            cam.position.y = worldSize.height / 2
+        } else {
+            cam.position.y = min(
+                max(cam.position.y, halfH),
+                worldSize.height - halfH
+            )
+        }
+    }
     // MARK: - Game loop
     override func update(_ currentTime: TimeInterval) {
         let rawDt = lastUpdate == 0 ? 0 : min(currentTime - lastUpdate, 0.1)
@@ -241,7 +300,9 @@ final class GameScene: SKScene {
         updateCrops()
         updateAnimals(dt)
         updateWorkers()
+        updateStockkeepers()
         state.tick(dt)
+        updateMarketCustomer()
 
         lockCheckTimer += rawDt
         if lockCheckTimer > 0.4 {

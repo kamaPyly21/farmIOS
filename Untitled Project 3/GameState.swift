@@ -95,7 +95,7 @@ enum AnimalType: String, CaseIterable, Identifiable {
 }
 
 enum Upgrade: String, CaseIterable, Identifiable {
-    case fertilizer, market, coop, pens, worker, pickaxe
+    case fertilizer, market, coop, pens, worker, pickaxe, stockkeeper
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -103,7 +103,8 @@ enum Upgrade: String, CaseIterable, Identifiable {
         case .market: return "🏪 Торговая лавка"
         case .coop: return "🐾 Уход за животными"
         case .pens: return "🏚 Амбар и загоны"
-        case .worker: return "👩‍🌾 Работники"
+        case .worker: return "🧑‍🌾Садовник"
+        case .stockkeeper: return "🔪Животновод"
         case .pickaxe: return "⛏ Кирка"
         }
     }
@@ -113,7 +114,8 @@ enum Upgrade: String, CaseIterable, Identifiable {
         case .market: return "Цены продажи +15%"
         case .coop: return "Продукты животных появляются на 15% чаще"
         case .pens: return "+1 место для скота в каждом загоне"
-        case .worker: return "+1 работник: сам ходит по полям и собирает урожай"
+        case .worker: return "+1 садовник: сам ходит по полям и собирает урожай"
+        case .stockkeeper: return "+1 животновод: собирает яйца, стрижет овец и доит коров"
         case .pickaxe: return "Поход в шахту короче на 10% и +2 угля за уровень"
         }
     }
@@ -124,6 +126,7 @@ enum Upgrade: String, CaseIterable, Identifiable {
         case .coop: return 120
         case .pens: return 250
         case .worker: return 400
+        case .stockkeeper: return 600
         case .pickaxe: return 200
         }
     }
@@ -152,6 +155,7 @@ final class GameState: ObservableObject {
     @Published var bakeProgress: Double = 0
     @Published var bakeryOpen = false
     @Published var mineOpen = false
+    @Published var marketOpen = false
     @Published var minePhase: MinePhase = .idle
     @Published var mineSeconds = 0
     @Published var mineProgress: Double = 0
@@ -215,6 +219,7 @@ final class GameState: ObservableObject {
         Int(Double(t.baseCost) * (1 + Balance.animalPriceStep * Double(animalCount(t))))
     }
     var workerCount: Int { min(level(.worker), Balance.maxWorkers) }
+    var stockkeeperCount: Int { min(level(.stockkeeper), Balance.maxWorkers)}
     func cost(of u: Upgrade) -> Int {
         Int(Double(u.baseCost) * pow(Balance.upgradeCostFactor, Double(level(u))))
     }
