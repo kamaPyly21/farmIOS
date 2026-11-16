@@ -31,7 +31,7 @@ final class WorkerRef {
 
 final class GameScene: SKScene {
     let state = GameState.shared
-    let worldSize = CGSize(width: 3000, height: 2200)
+    let worldSize = CGSize(width: 3800, height: 2600)
     let ink = UIColor(red: 0.35, green: 0.24, blue: 0.11, alpha: 1)
 
     let cam = SKCameraNode()
@@ -56,6 +56,9 @@ final class GameScene: SKScene {
     let housePos = CGPoint(x: 1500, y: 1500)
     let barnPos = CGPoint(x: 2000, y: 1500)
     let bakeryPos = CGPoint(x: 1150, y: 1500)
+    let dairyPos = CGPoint(x: 3000, y: 1500)
+    var dairyMapNode: SKNode?
+    var dairyRenderedLevel = -1
     let minePos = CGPoint(x: 560, y: 1800)
     let marketPos = CGPoint(x: 1850, y: 1800)
     let pondPos = CGPoint(x: 600, y: 1250)
@@ -91,6 +94,7 @@ final class GameScene: SKScene {
         buildBakery()
         buildMine()
         buildMarket()
+        buildDairyDistrict()
         syncAnimals()
         syncWorkers()
         startSmoke()
@@ -154,6 +158,10 @@ final class GameScene: SKScene {
         guard let v = view else { return }
 
         let p = convertPoint(fromView: g.location(in: v))
+        if dairyTapArea.contains(p) {
+            state.dairyOpen = true
+            return
+        }
         let marketArea = CGRect(
             x: marketPos.x - 140,
             y: marketPos.y - 130,
@@ -302,6 +310,7 @@ final class GameScene: SKScene {
         updateWorkers()
         updateStockkeepers()
         state.tick(dt)
+        syncDairyBuilding()
         updateMarketCustomer()
 
         lockCheckTimer += rawDt
@@ -605,11 +614,44 @@ final class GameScene: SKScene {
     }
 
     func inAnyZone(_ p: CGPoint) -> Bool {
-        for t in AnimalType.allCases where penRect(t).insetBy(dx: -60, dy: -60).contains(p) { return true }
-        if hypot(p.x - pondPos.x, (p.y - pondPos.y) * 1.5) < 230 { return true }
-        if CGRect(x: 1000, y: 1380, width: 1100, height: 300).contains(p) { return true }
-        if CGRect(x: minePos.x - 240, y: minePos.y - 140, width: 480, height: 360).contains(p) { return true }
-        return fieldRects.contains { $0.insetBy(dx: -30, dy: -30).contains(p) }
+        // Не размещаем декорации на площадке сыроварни.
+        if dairyReservedArea.contains(p) {
+            return true
+        }
+
+        for t in AnimalType.allCases
+        where penRect(t).insetBy(dx: -60, dy: -60).contains(p) {
+            return true
+        }
+
+        if hypot(
+            p.x - pondPos.x,
+            (p.y - pondPos.y) * 1.5
+        ) < 230 {
+            return true
+        }
+
+        if CGRect(
+            x: 1000,
+            y: 1380,
+            width: 1100,
+            height: 300
+        ).contains(p) {
+            return true
+        }
+
+        if CGRect(
+            x: minePos.x - 240,
+            y: minePos.y - 140,
+            width: 480,
+            height: 360
+        ).contains(p) {
+            return true
+        }
+
+        return fieldRects.contains {
+            $0.insetBy(dx: -30, dy: -30).contains(p)
+        }
     }
 
     func addLock(key: String, rect r: CGRect, cost: Int) {

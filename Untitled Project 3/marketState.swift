@@ -215,7 +215,8 @@ final class MarketState: ObservableObject {
         switch item {
         case .wheat, .carrot, .cabbage:
             return 3...6
-
+        case .cheese:
+            return 1...2
         case .egg:
             return 2...5
 

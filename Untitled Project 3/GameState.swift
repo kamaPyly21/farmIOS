@@ -3,7 +3,19 @@ import UIKit
 import Combine
 
 enum Item: String, CaseIterable, Identifiable {
-    case wheat, carrot, cabbage, bread, egg, wool, milk, chickenMeat, mutton, beef, coal
+    case wheat
+    case carrot
+    case cabbage
+    case bread
+    case egg
+    case wool
+    case milk
+    case cheese
+    case chickenMeat
+    case mutton
+    case beef
+    case coal
+    
     var id: String { rawValue }
     var emoji: String {
         switch self {
@@ -18,6 +30,7 @@ enum Item: String, CaseIterable, Identifiable {
         case .mutton: return "🍖"
         case .beef: return "🥩"
         case .coal: return "🪨"
+        case .cheese: return "🧀"
         }
     }
     var price: Int {
@@ -33,6 +46,7 @@ enum Item: String, CaseIterable, Identifiable {
         case .mutton: return 140
         case .beef: return 320
         case .coal: return 0
+        case .cheese: return Item.milk.price * 5
         }
     }
     var sellable: Bool { self != .coal }
@@ -154,6 +168,7 @@ final class GameState: ObservableObject {
     @Published var bakeQueue: Int
     @Published var bakeProgress: Double = 0
     @Published var bakeryOpen = false
+    @Published var dairyOpen = false
     @Published var mineOpen = false
     @Published var marketOpen = false
     @Published var minePhase: MinePhase = .idle
@@ -186,6 +201,20 @@ final class GameState: ObservableObject {
     private var mineStart: Double = 0
     private var mineEnd: Double = 0
     private var restEnd: Double = 0
+    // MARK: Cheese dairy
+
+    @Published var dairyLevel = 0
+    @Published var dairyQueue = 0
+    @Published var dairyReady = 0
+    @Published var dairyFinishAt: Double = 0
+    @Published var dairySeconds = 0
+
+    @Published var dairyWorkerHired = false
+    @Published var dairyAuto = false
+    @Published var dairyMilkReserve = 5
+    @Published var dairyTarget = 10
+
+    private var dairyDisplayedSecond = -1
 
     init() {
         let d = UserDefaults.standard
@@ -216,7 +245,42 @@ final class GameState: ObservableObject {
         mineStart = d.double(forKey: "mineStart")
         mineEnd = d.double(forKey: "mineEnd")
         restEnd = d.double(forKey: "restEnd")
+
+        // MARK: Загрузка сыроварни
+
+        dairyLevel = min(
+            3,
+            max(0, d.integer(forKey: "dairyLevel"))
+        )
+
+        dairyQueue = max(
+            0,
+            d.integer(forKey: "dairyQueue")
+        )
+
+        dairyReady = max(
+            0,
+            d.integer(forKey: "dairyReady")
+        )
+
+        dairyFinishAt = d.double(forKey: "dairyFinishAt")
+
+        dairyWorkerHired = d.bool(forKey: "dairyWorkerHired")
+        dairyAuto = d.bool(forKey: "dairyAuto")
+
+        dairyMilkReserve = max(
+            0,
+            d.object(forKey: "dairyMilkReserve") as? Int ?? 5
+        )
+
+        dairyTarget = max(
+            1,
+            d.object(forKey: "dairyTarget") as? Int ?? 10
+        )
+
+        tickDairy(allowAutomation: false)
     }
+
 
     func save() {
         let d = UserDefaults.standard
@@ -231,6 +295,15 @@ final class GameState: ObservableObject {
         d.set(mineStart, forKey: "mineStart")
         d.set(mineEnd, forKey: "mineEnd")
         d.set(restEnd, forKey: "restEnd")
+        d.set(dairyLevel, forKey: "dairyLevel")
+        d.set(dairyQueue, forKey: "dairyQueue")
+        d.set(dairyReady, forKey: "dairyReady")
+        d.set(dairyFinishAt, forKey: "dairyFinishAt")
+
+        d.set(dairyWorkerHired, forKey: "dairyWorkerHired")
+        d.set(dairyAuto, forKey: "dairyAuto")
+        d.set(dairyMilkReserve, forKey: "dairyMilkReserve")
+        d.set(dairyTarget, forKey: "dairyTarget")
     }
 
     // MARK: Stats
@@ -423,6 +496,189 @@ final class GameState: ObservableObject {
         bakeQueue += 1
         save()
     }
+    // MARK: Dairy
+
+    var dairyOwned: Bool {
+        dairyLevel > 0
+    }
+
+    var dairyCapacity: Int {
+        dairyLevel
+    }
+
+    var dairyBatchDuration: Double {
+        switch dairyLevel {
+        case 2:
+            return 75
+        case 3:
+            return 60
+        default:
+            return 90
+        }
+    }
+
+    var dairyNextCost: Int? {
+        switch dairyLevel {
+        case 0:
+            return 1000
+        case 1:
+            return 1500
+        case 2:
+            return 2500
+        default:
+            return nil
+        }
+    }
+
+    var dairyOccupied: Int {
+        dairyQueue + dairyReady
+    }
+
+    var canQueueCheese: Bool {
+        dairyOwned
+            && count(.milk) >= 3
+            && dairyOccupied < dairyCapacity
+    }
+
+    var canHireDairyWorker: Bool {
+        dairyLevel >= 2
+            && !dairyWorkerHired
+            && coins >= 1200
+    }
+
+    func buyOrUpgradeDairy() {
+        guard let cost = dairyNextCost,
+              coins >= cost else {
+            return
+        }
+
+        coins -= cost
+        dairyLevel += 1
+
+        // Уже начатая партия сохраняет свой срок.
+        // Новая скорость применяется к следующим партиям.
+        save()
+    }
+
+    func hireDairyWorker() {
+        guard canHireDairyWorker else { return }
+
+        coins -= 1200
+        dairyWorkerHired = true
+        dairyAuto = true
+        save()
+    }
+
+    func setDairyAuto(_ enabled: Bool) {
+        dairyAuto = enabled && dairyWorkerHired
+        save()
+    }
+
+    func setDairyMilkReserve(_ value: Int) {
+        dairyMilkReserve = max(0, value)
+        save()
+    }
+
+    func setDairyTarget(_ value: Int) {
+        dairyTarget = max(1, value)
+        save()
+    }
+
+    func queueCheese() {
+        guard canQueueCheese else { return }
+
+        let wasIdle = dairyQueue == 0
+
+        inventory[.milk] = count(.milk) - 3
+        dairyQueue += 1
+
+        if wasIdle {
+            dairyFinishAt =
+                Date().timeIntervalSince1970 + dairyBatchDuration
+            dairySeconds = Int(ceil(dairyBatchDuration))
+        }
+
+        save()
+    }
+
+    func collectCheese() {
+        guard dairyReady > 0 else { return }
+
+        inventory[.cheese, default: 0] += dairyReady
+        dairyReady = 0
+        save()
+    }
+
+    private func tickDairy(allowAutomation: Bool = true) {
+        guard dairyOwned else { return }
+
+        let now = Date().timeIntervalSince1970
+        var changed = false
+
+        // Защитное восстановление таймера.
+        if dairyQueue > 0 && dairyFinishAt <= 0 {
+            dairyFinishAt = now + dairyBatchDuration
+            changed = true
+        }
+
+        // Завершаем уже загруженные партии, в том числе
+        // если их время прошло, пока игра была закрыта.
+        while dairyQueue > 0 && now >= dairyFinishAt {
+            let completedAt = dairyFinishAt
+
+            dairyQueue -= 1
+            dairyReady += 1
+            changed = true
+
+            if dairyQueue > 0 {
+                dairyFinishAt = completedAt + dairyBatchDuration
+            } else {
+                dairyFinishAt = 0
+            }
+        }
+
+        if allowAutomation && dairyWorkerHired && dairyAuto {
+            // Сыровар переносит готовую продукцию на склад.
+            if dairyReady > 0 {
+                inventory[.cheese, default: 0] += dairyReady
+                dairyReady = 0
+                changed = true
+            }
+
+            // В целевой запас включаем уже заказанные партии,
+            // чтобы не производить лишнее.
+            while dairyOccupied < dairyCapacity
+                && count(.milk) >= 3
+                && count(.milk) - 3 >= dairyMilkReserve
+                && count(.cheese) + dairyQueue + dairyReady
+                    < dairyTarget {
+
+                let wasIdle = dairyQueue == 0
+
+                inventory[.milk] = count(.milk) - 3
+                dairyQueue += 1
+
+                if wasIdle {
+                    dairyFinishAt = now + dairyBatchDuration
+                }
+
+                changed = true
+            }
+        }
+
+        let seconds = dairyQueue > 0
+            ? max(0, Int(ceil(dairyFinishAt - now)))
+            : 0
+
+        if seconds != dairyDisplayedSecond {
+            dairyDisplayedSecond = seconds
+            dairySeconds = seconds
+        }
+
+        if changed {
+            save()
+        }
+    }
 
     // MARK: Mine
     func startMineTrip() {
@@ -493,6 +749,7 @@ final class GameState: ObservableObject {
     func tick(_ dt: Double) {
         tickBake(dt)
         tickMine()
+        tickDairy()
     }
 
     // MARK: Cheats
