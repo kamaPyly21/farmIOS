@@ -21,8 +21,8 @@ enum Balance {
     static let pickaxeTimeFactor = 0.9
 
     // Экономика
-    static let startCoins = 30
+    static let startCoins = 300
     static let upgradeCostFactor = 2.0
     static let animalPriceStep = 0.3
-    static let maxWorkers = 5
+    static let maxWorkers = 7
 }

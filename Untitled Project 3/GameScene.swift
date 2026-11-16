@@ -175,7 +175,7 @@ final class GameScene: SKScene {
                 )
 
                 if distance < 40 {
-                    collectProduct(a)
+                    collectProduct(a: a)
                     return
                 }
             }
@@ -399,16 +399,26 @@ final class GameScene: SKScene {
             .run { flip?.removeAction(forKey: "bob"); flip?.position = .zero },
             .run { flip?.run(work) },
             .wait(forDuration: 0.5),
-            .run { [weak self] in self?.finishWork(w, p) }
-        ]), withKey: "work")
+            .run { [weak self] in
+                guard let self = self else { return }
+                self.finishWork(w: w, p: p)
+            }
+        ]),
+                   withKey: "work")
     }
 
-    func finishWork(_ w: WorkerRef, _ p: Plot) {
+    func finishWork(w: WorkerRef, p: Plot) {
         reserved.remove(ObjectIdentifier(p))
+
         if p.ripe, let crop = p.crop {
-            harvest(p)
-            if state.spend(crop.seedCost) { plant(p, crop) }
+            harvest(p: p)
+
+            if state.gardenerAutoPlant,
+               state.payForGardenerPlanting(crop) {
+                plant(p, crop)
+            }
         }
+
         w.busy = false
     }
 
@@ -448,7 +458,7 @@ final class GameScene: SKScene {
             return
         }
         if p.ripe {
-            harvest(p)
+            harvest(p: p)
         } else if p.crop == nil {
             let c = state.selected
             if state.spend(c.seedCost) {
@@ -470,10 +480,13 @@ final class GameScene: SKScene {
         p.plant.setScale(0.3)
     }
 
-    func harvest(_ p: Plot) {
+    func harvest(p: Plot) {
         guard let crop = p.crop else { return }
+
         state.add(crop.item)
-        floatText("+1 \(crop.emoji)", at: p.node.position)
+        QuestState.shared.recordHarvest(crop.item)
+        floatText("1 \(crop.emoji)", at: p.node.position)
+
         p.crop = nil
         p.ripe = false
         p.plant.removeAllActions()
@@ -494,10 +507,13 @@ final class GameScene: SKScene {
         ])), withKey: "pulse")
     }
 
-    func collectProduct(_ a: AnimalRef) {
+    func collectProduct(a: AnimalRef) {
         guard let prod = a.product else { return }
+
         state.add(a.type.product)
-        floatText("+1 \(a.type.product.emoji)", at: prod.position)
+        QuestState.shared.recordHarvest(a.type.product)
+        floatText("1 \(a.type.product.emoji)", at: prod.position)
+
         prod.removeFromParent()
         a.product = nil
         a.timer = 0

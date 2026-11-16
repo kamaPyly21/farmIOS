@@ -13,7 +13,7 @@ struct FarmApp: App {
 }
 
 enum ActiveSheet: String, Identifiable {
-    case shop, animals, bakery, mine, cheats, market
+    case shop, animals, bakery, mine, cheats, market, quests
     var id: String { rawValue }
 }
 
@@ -31,7 +31,16 @@ struct GameContainer: View {
             SpriteView(scene: scene)
             VStack(spacing: 8) {
                 topBar
+
                 Spacer()
+
+                HStack {
+                    FarmerGuideView()
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.bottom, 4)
+
                 seedBar
             }
             .padding(.horizontal, 12)
@@ -45,6 +54,9 @@ struct GameContainer: View {
             case .mine: MineView(state: state)
             case .cheats: CheatsView(state: state)
             case .market: MarketView()
+            case .quests: NavigationStack {
+                       QuestsView(farm: state)
+                   }
             }
         }
         .onReceive(state.$bakeryOpen) { open in
@@ -81,6 +93,26 @@ struct GameContainer: View {
 
     var topBar: some View {
         VStack(spacing: 8) {
+            HStack {
+                Button {
+                    sheet = .quests
+                } label: {
+                    Label(
+                        "Квесты фермера",
+                        systemImage: "list.bullet.clipboard"
+                    )
+                    .font(.subheadline.bold())
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        .regularMaterial,
+                        in: Capsule()
+                    )
+                }
+                .tint(.brown)
+
+                Spacer()
+            }
             HStack(spacing: 6) {
                 Text("🪙 \(state.coins)")
                     .font(.title3.bold())

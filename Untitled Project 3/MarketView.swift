@@ -33,6 +33,36 @@ struct MarketView: View {
     var body: some View {
         NavigationStack {
             List {
+                Section("Склад") {
+                    HStack {
+                        Text("Баланс")
+
+                        Spacer()
+
+                        Text("\(farm.coins) монет")
+                            .monospacedDigit()
+                    }
+
+                    NavigationLink {
+                        QuickSaleView(game: farm)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Быстрая продажа")
+                                .font(.headline)
+
+                            Text("Продать продукцию сразу за 60% цены")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                Section("Работники") {
+                    NavigationLink("Настройки садовников") {
+                        GardenerSettingsView(farm: farm)
+                    }
+                }
+
                 switch market.phase {
                 case .approaching:
                     Section("Покупатель идёт") {

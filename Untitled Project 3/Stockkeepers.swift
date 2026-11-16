@@ -236,7 +236,7 @@ extension GameScene {
 
             switch animal.type {
             case .chicken:
-                collectProduct(animal)
+                collectProduct(a: animal)
 
             case .sheep, .cow:
                 _ = tryCare(animal)

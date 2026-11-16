@@ -160,6 +160,25 @@ final class GameState: ObservableObject {
     @Published var mineSeconds = 0
     @Published var mineProgress: Double = 0
     @Published var gameSpeed: Double = 1
+    // По умолчанию садовники только собирают урожай.
+    @Published var gardenerAutoPlant = false {
+        didSet {
+            UserDefaults.standard.set(
+                gardenerAutoPlant,
+                forKey: "gardenerAutoPlant"
+            )
+        }
+    }
+
+    // Общий резерв для всех садовников.
+    @Published var gardenerReserve = 100 {
+        didSet {
+            UserDefaults.standard.set(
+                max(0, gardenerReserve),
+                forKey: "gardenerReserve"
+            )
+        }
+    }
 
     var growAllRequested = false
     var onMineFinished: ((Int) -> Void)?
@@ -170,6 +189,13 @@ final class GameState: ObservableObject {
 
     init() {
         let d = UserDefaults.standard
+        gardenerAutoPlant =
+            d.object(forKey: "gardenerAutoPlant") as? Bool ?? false
+
+        gardenerReserve = max(
+            0,
+            d.object(forKey: "gardenerReserve") as? Int ?? 100
+        )
         coins = d.object(forKey: "coins") as? Int ?? Balance.startCoins
         var inv: [Item: Int] = [:]
         for i in Item.allCases { inv[i] = d.integer(forKey: "inv_" + i.rawValue) }
@@ -238,9 +264,23 @@ final class GameState: ObservableObject {
 
     // MARK: Actions
     func sellAll() {
-        coins += sellValue
-        for i in Item.allCases where i.sellable { inventory[i] = 0 }
+        let revenue = sellValue
+
+        guard revenue > 0 else { return }
+
+        let (newCoins, overflow) =
+            coins.addingReportingOverflow(revenue)
+
+        guard !overflow else { return }
+
+        for item in Item.allCases where item.sellable {
+            inventory[item] = 0
+        }
+
+        coins = newCoins
         save()
+
+        QuestState.shared.recordSale(revenue: revenue)
     }
 
     func spend(_ amount: Int) -> Bool {
@@ -293,7 +333,82 @@ final class GameState: ObservableObject {
         inventory[.coal, default: 0] += 1
         save()
     }
+    // MARK: Gardener
 
+    /// Проверка для выбора задачи. Монеты не списывает.
+    func canGardenerPlant(_ crop: Crop) -> Bool {
+        guard gardenerAutoPlant else { return false }
+
+        let seedCost = crop.seedCost
+        let reserve = max(0, gardenerReserve)
+
+        guard seedCost >= 0,
+              coins >= seedCost else {
+            return false
+        }
+
+        return coins - seedCost >= reserve
+    }
+
+    /// Вызывать только непосредственно перед фактической автопосадкой.
+    /// Повторно проверяет настройки и баланс, затем списывает семена.
+    @discardableResult
+    func payForGardenerPlanting(_ crop: Crop) -> Bool {
+        guard canGardenerPlant(crop) else {
+            return false
+        }
+
+        coins -= crop.seedCost
+        save()
+
+        return true
+    }
+    // MARK: Quick sale
+
+    func quickSellUnitPrice(_ item: Item) -> Int {
+        guard item.sellable else { return 0 }
+
+        return max(
+            1,
+            Int(
+                (Double(item.price) * sellMultiplier * 0.60)
+                    .rounded(.down)
+            )
+        )
+    }
+
+    @discardableResult
+    func quickSell(_ item: Item, quantity: Int) -> Int {
+        guard item.sellable,
+              quantity > 0,
+              count(item) >= quantity else {
+            return 0
+        }
+
+        let unitPrice = quickSellUnitPrice(item)
+
+        let (revenue, revenueOverflow) =
+            quantity.multipliedReportingOverflow(by: unitPrice)
+
+        guard !revenueOverflow, revenue > 0 else {
+            return 0
+        }
+
+        let (newCoins, balanceOverflow) =
+            coins.addingReportingOverflow(revenue)
+
+        guard !balanceOverflow else {
+            return 0
+        }
+
+        inventory[item] = count(item) - quantity
+        coins = newCoins
+        save()
+
+        QuestState.shared.recordSale(revenue: revenue)
+
+        return revenue
+    }
     // MARK: Bakery
     var canBake: Bool {
         count(.wheat) >= Balance.breadWheat && count(.coal) >= Balance.coalPerBatch

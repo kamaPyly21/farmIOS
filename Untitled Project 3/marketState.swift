@@ -24,7 +24,7 @@ final class MarketState: ObservableObject {
     let waitingDuration: TimeInterval = 180
     let leaveDuration: TimeInterval = 15
 
-    private let pauseRange: ClosedRange<Double> = 20...40
+    private let pauseRange: ClosedRange<Double> = 5...10
 
     // MARK: - Состояние покупателя
 
@@ -409,6 +409,7 @@ final class MarketState: ObservableObject {
             -= currentOrder.quantity
 
         farm.coins += earned
+        QuestState.shared.recordSale(revenue: earned)
         farm.save()
 
         beginLeaving(
