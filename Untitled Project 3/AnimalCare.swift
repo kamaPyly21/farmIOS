@@ -50,6 +50,7 @@ extension GameScene {
         guard a.type != .chicken else { return false }
         if careProgress(a) >= 1 {
             state.add(a.type.product)
+            QuestState.shared.recordHarvest(a.type.product)
             floatText("+1 \(a.type.product.emoji)", at: a.node.position)
             careBurst(a)
             a.timer = 0

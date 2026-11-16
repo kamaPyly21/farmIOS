@@ -12,6 +12,9 @@ enum FarmQuestKind: String, CaseIterable, Identifiable, Codable {
     case wheat
     case eggs
     case revenue
+    case meat
+    case wool
+    case milk
 
     var id: String { rawValue }
 
@@ -20,14 +23,26 @@ enum FarmQuestKind: String, CaseIterable, Identifiable, Codable {
         case .wheat: return "Урожай пшеницы"
         case .eggs: return "Свежие яйца"
         case .revenue: return "Успешная торговля"
+        case .meat: return "Мясная продукция"
+        case .wool: return "Мягкая шерсть"
+        case .milk: return "Свежее молоко"
         }
     }
 
     var instruction: String {
         switch self {
-        case .wheat: return "Собери пшеницу"
-        case .eggs: return "Собери яйца"
-        case .revenue: return "Заработай продажей продукции"
+        case .wheat:
+            return "Собери пшеницу"
+        case .eggs:
+            return "Собери яйца"
+        case .revenue:
+            return "Заработай продажей продукции"
+        case .meat:
+            return "Получи мясо при забое животных"
+        case .wool:
+            return "Собери шерсть с овец"
+        case .milk:
+            return "Собери молоко с коров"
         }
     }
 
@@ -40,6 +55,9 @@ enum FarmQuestKind: String, CaseIterable, Identifiable, Codable {
         case .wheat: return 10
         case .eggs: return 5
         case .revenue: return 100
+        case .meat: return 3
+        case .wool: return 5
+        case .milk: return 5
         }
     }
 
@@ -56,13 +74,21 @@ enum FarmQuestKind: String, CaseIterable, Identifiable, Codable {
             default: step = 250
             }
 
-        case .eggs:
+        case .eggs, .wool, .milk:
             switch target {
             case ..<25: step = 5
             case ..<100: step = 10
             case ..<250: step = 25
             case ..<500: step = 50
             default: step = 100
+            }
+
+        case .meat:
+            switch target {
+            case ..<15: step = 3
+            case ..<50: step = 5
+            case ..<100: step = 10
+            default: step = 25
             }
 
         case .revenue:
@@ -81,7 +107,6 @@ enum FarmQuestKind: String, CaseIterable, Identifiable, Codable {
     func reward(for target: Int) -> Int {
         switch self {
         case .wheat:
-            // 20 + 80% цели, округление вниз до десятков.
             let raw = 20 + target * 4 / 5
             return max(20, raw / 10 * 10)
 
@@ -90,6 +115,12 @@ enum FarmQuestKind: String, CaseIterable, Identifiable, Codable {
 
         case .revenue:
             return 10 + target / 10
+
+        case .meat:
+            return 20 + target * 5
+
+        case .wool, .milk:
+            return 15 + target * 3
         }
     }
 }
@@ -156,6 +187,15 @@ final class QuestState: ObservableObject {
 
         case .egg:
             addProgress(to: .eggs, amount: quantity)
+
+        case .chickenMeat, .mutton, .beef:
+            addProgress(to: .meat, amount: quantity)
+
+        case .wool:
+            addProgress(to: .wool, amount: quantity)
+
+        case .milk:
+            addProgress(to: .milk, amount: quantity)
 
         default:
             break

@@ -323,11 +323,13 @@ final class GameState: ObservableObject {
 
     func slaughter(_ t: AnimalType) {
         guard animalCount(t) > 0 else { return }
+
         animals[t] = animalCount(t) - 1
         inventory[t.meat, default: 0] += 1
         save()
-    }
 
+        QuestState.shared.recordHarvest(t.meat)
+    }
     func buyCoal() {
         guard spend(Balance.coalPrice) else { return }
         inventory[.coal, default: 0] += 1
