@@ -130,6 +130,12 @@ struct GameContainer: View {
                     .background(.ultraThinMaterial, in: Capsule())
                 Spacer()
                 Button { sheet = .bakery } label: { pill("🍞") }
+                Button {
+                    sheet = .dairy
+                } label: {
+                    pill("🧀")
+                }
+                .accessibilityLabel("Сыроварня")
                 Button { sheet = .mine } label: { pill("⛏") }
                 Button { sheet = .animals } label: { pill("🐾") }
                 Button { sheet = .shop } label: { pill("🛒") }

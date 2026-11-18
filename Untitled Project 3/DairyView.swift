@@ -54,6 +54,7 @@ struct DairyView: View {
         }
     }
 
+   
     private var productionSection: some View {
         Section("Производство") {
             LabeledContent(
@@ -84,25 +85,21 @@ struct DairyView: View {
                 )
             }
 
-            LabeledContent(
-                "Готово к получению",
-                value: "\(state.dairyReady)"
-            )
-
             Button("Загрузить 3 молока") {
                 state.queueCheese()
             }
             .disabled(!state.canQueueCheese)
 
-            Button("Забрать сыр: \(state.dairyReady)") {
-                state.collectCheese()
-            }
-            .disabled(state.dairyReady == 0)
+            Text(
+                "Готовый сыр автоматически поступает на склад."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
 
             if state.dairyOccupied >= state.dairyCapacity {
                 Text(
                     "Сыроварня заполнена. Дождись готовности "
-                    + "и забери сыр."
+                    + "очереди."
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)

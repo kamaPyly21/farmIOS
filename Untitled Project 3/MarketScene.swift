@@ -240,8 +240,19 @@ extension GameScene {
                     ? "Слишком дорого или долго!"
                     : "До свидания!"
             } else if let order = market.order {
-                bubble.text =
-                    "\(order.item.emoji) × \(order.quantity)"
+                var orderText = ""
+
+                for (index, item) in order.items.enumerated() {
+                    let quantity = order.quantities[index]
+
+                    if !orderText.isEmpty {
+                        orderText += "\n"
+                    }
+
+                    orderText += "\(item.emoji) × \(quantity)"
+                }
+
+                bubble.text = orderText
             }
         }
     }

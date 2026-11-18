@@ -475,10 +475,25 @@ final class GameState: ObservableObject {
         guard animalCount(t) > 0 else { return }
 
         animals[t] = animalCount(t) - 1
-        inventory[t.meat, default: 0] += 1
+
+        let meatQuantity: Int
+
+        switch t {
+        case .chicken:
+            meatQuantity = 2
+        case .sheep:
+            meatQuantity = 3
+        case .cow:
+            meatQuantity = 4
+        }
+
+        inventory[t.meat, default: 0] += meatQuantity
         save()
 
-        QuestState.shared.recordHarvest(t.meat)
+        QuestState.shared.recordHarvest(
+            t.meat,
+            quantity: meatQuantity
+        )
     }
     func buyCoal() {
         guard spend(Balance.coalPrice) else { return }
@@ -735,21 +750,7 @@ final class GameState: ObservableObject {
         save()
     }
 
-        func collectCheese() {
-            guard dairyReady > 0 else { return }
-
-            let quantity = dairyReady
-
-            inventory[.cheese, default: 0] += quantity
-            dairyReady = 0
-
-            save()
-
-            QuestState.shared.recordHarvest(
-                .cheese,
-                quantity: quantity
-            )
-        }
+       
 
     private func tickDairy(allowAutomation: Bool = true) {
         guard dairyOwned else { return }
@@ -769,8 +770,13 @@ final class GameState: ObservableObject {
             let completedAt = dairyFinishAt
 
             dairyQueue -= 1
-            dairyReady += 1
+            inventory[.cheese, default: 0] += 1
             changed = true
+
+            QuestState.shared.recordHarvest(
+                .cheese,
+                quantity: 1
+            )
 
             if dairyQueue > 0 {
                 dairyFinishAt = completedAt + dairyBatchDuration

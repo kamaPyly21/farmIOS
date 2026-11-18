@@ -23,7 +23,7 @@ extension Item {
 struct MarketView: View {
     @ObservedObject private var market = MarketState.shared
     @ObservedObject private var farm = GameState.shared
-
+    
     private var timeText: String {
         String(
             format: "%d:%02d",
@@ -31,58 +31,58 @@ struct MarketView: View {
             market.secondsLeft % 60
         )
     }
-
+    
     var body: some View {
         NavigationStack {
             List {
                 Section("Склад") {
                     HStack {
                         Text("Баланс")
-
+                        
                         Spacer()
-
+                        
                         Text("\(farm.coins) монет")
                             .monospacedDigit()
                     }
-
+                    
                     NavigationLink {
                         QuickSaleView(game: farm)
                     } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Быстрая продажа")
                                 .font(.headline)
-
+                            
                             Text("Продать продукцию сразу за 60% цены")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                     }
                 }
-
+                
                 Section("Работники") {
                     NavigationLink("Настройки садовников") {
                         GardenerSettingsView(farm: farm)
                     }
                 }
-
+                
                 switch market.phase {
                 case .approaching:
                     Section("Покупатель идёт") {
                         if let order = market.order {
                             Text(order.name)
                                 .font(.title2.bold())
-
-                            Text(
-                                "Хочет купить: "
-                                + "\(order.item.marketTitle)"
-                                + " × \(order.quantity)"
-                            )
+                            
+                            ForEach(order.items.indices, id: \.self) { index in
+                                let item = order.items[index]
+                                let quantity = order.quantities[index]
+                                
+                                Text("\(item.marketTitle) × \(quantity)")
+                            }
                         }
-
                         Text("Подойдёт через \(timeText)")
                             .monospacedDigit()
                     }
-
+                    
                 case .waiting:
                     if let order = market.order {
                         customerSection(order)
@@ -90,26 +90,26 @@ struct MarketView: View {
                         bargainingSection
                         saleSection(order)
                     }
-
+                    
                 case .leaving:
                     Section("Покупатель уходит") {
                         Text(market.message)
                             .foregroundColor(
                                 market.angry
-                                    ? Color.red
-                                    : Color.primary
+                                ? Color.red
+                                : Color.primary
                             )
-
+                        
                         Text("Уйдёт через \(timeText)")
                             .monospacedDigit()
                     }
-
+                    
                 case .pause:
                     Section("Прилавок свободен") {
                         if !market.message.isEmpty {
                             Text(market.message)
                         }
-
+                        
                         Text(
                             "Новый покупатель через \(timeText)"
                         )
@@ -125,160 +125,146 @@ struct MarketView: View {
             market.prepareCustomer()
         }
     }
-
+    
     private func customerSection(
         _ order: CustomerOrder
     ) -> some View {
         Section("Покупатель") {
             Text(order.name)
                 .font(.title2.bold())
-
+            
             HStack {
                 Text("Осталось ждать")
-
+                
                 Spacer()
-
+                
                 Text(timeText)
                     .monospacedDigit()
                     .bold()
                     .foregroundColor(
                         market.secondsLeft <= 30
-                            ? Color.red
-                            : Color.primary
+                        ? Color.red
+                        : Color.primary
                     )
             }
-
+            
             Text(market.message)
                 .foregroundColor(.secondary)
         }
     }
-
+    
     private func orderSection(
         _ order: CustomerOrder
     ) -> some View {
         Section("Заказ") {
-            HStack {
-                Text(order.item.marketTitle)
-
-                Spacer()
-
-                Text("× \(order.quantity)")
-                    .bold()
-            }
-
-            HStack {
-                Text("На складе")
-
-                Spacer()
-
-                Text(
-                    "\(farm.count(order.item))"
-                    + " / \(order.quantity)"
-                )
-            }
-
-            HStack {
-                Text("Обычная стоимость")
-
-                Spacer()
-
-                Text("\(order.basePrice) монет")
-            }
-
-            HStack {
-                Text("Покупатель готов заплатить")
-
-                Spacer()
-
-                Text("\(market.currentOffer)")
-                    .bold()
-                    .foregroundColor(.green)
+            ForEach(
+                Array(
+                    zip(order.items, order.quantities)
+                ),
+                id: \.0
+            ) { item, quantity in
+                HStack {
+                    Text(item.marketTitle)
+                    
+                    Spacer()
+                    
+                    Text("× \(quantity)")
+                        .bold()
+                }
+                
+                HStack {
+                    Text("На складе")
+                    
+                    Spacer()
+                    
+                    Text(
+                        "\(farm.count(item))"
+                        + " / \(quantity)"
+                    )
+                    .foregroundColor(
+                        farm.count(item) >= quantity
+                        ? .primary
+                        : .red
+                    )
+                }
             }
         }
     }
-
     private var bargainingSection: some View {
         Section("Торг") {
-            if market.agreed {
-                Text(
-                    "Цена согласована: "
-                    + "\(market.currentOffer) монет."
-                )
-                .font(.headline)
+            HStack {
+                Text("Твоя цена")
 
-                Text(
-                    "Подготовьте товар и подтвердите продажу."
-                )
-                .font(.caption)
-                .foregroundColor(.secondary)
-            } else if market.roundsLeft > 0 {
-                Text(
-                    "Осталось предложений: "
-                    + "\(market.roundsLeft)"
-                )
+                Spacer()
 
-                HStack {
-                    Button {
-                        market.decreasePrice()
-                    } label: {
-                        Text("−\(market.priceStep)")
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(
-                        market.askingPrice <= market.minimumPrice
-                    )
+                Text("\(market.askingPrice) монет")
+                    .bold()
+            }
 
-                    Spacer()
+            HStack {
+                Text("Предложение покупателя")
 
-                    Text("\(market.askingPrice) монет")
-                        .font(.title3.bold())
-                        .monospacedDigit()
+                Spacer()
 
-                    Spacer()
+                Text("\(market.currentOffer) монет")
+                    .bold()
+            }
 
-                    Button {
-                        market.increasePrice()
-                    } label: {
-                        Text("+\(market.priceStep)")
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(
-                        market.askingPrice >= market.maximumPrice
-                    )
-                }
+            HStack {
+                Text("Осталось раундов")
 
-                if market.askingPrice < market.currentOffer {
-                    Text(
-                        "Покупатель уже предлагает больше. "
-                        + "Вы собираетесь уступить ему в цене."
-                    )
-                    .font(.caption)
-                    .foregroundColor(.orange)
-                }
+                Spacer()
 
-                Button("Предложить свою цену") {
-                    market.proposePrice()
+                Text("\(market.roundsLeft)")
+            }
+
+            HStack(spacing: 12) {
+                Button("−") {
+                    market.decreasePrice()
                 }
                 .buttonStyle(.bordered)
-                .disabled(!market.canNegotiate)
+                .disabled(
+                    market.phase != .waiting
+                        || market.agreed
+                        || market.roundsLeft <= 0
+                        || market.askingPrice <= market.minimumPrice
+                )
 
+                Button("+") {
+                    market.increasePrice()
+                }
+                .buttonStyle(.bordered)
+                .disabled(
+                    market.phase != .waiting
+                        || market.agreed
+                        || market.roundsLeft <= 0
+                        || market.askingPrice >= market.maximumPrice
+                )
+
+                Button("Предложить") {
+                    market.proposePrice()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!market.canNegotiate)
+            }
+
+            if market.agreed {
+                Text("Покупатель согласился на твою цену.")
+                    .foregroundColor(.green)
+            } else if market.roundsLeft > 0 {
                 Text(
-                    "Высокая цена может сорвать сделку. "
-                    + "После предложения свою цену "
-                    + "можно только снижать."
+                    "Измени свою цену и предложи её снова. "
+                    + "После первого предложения цену можно "
+                    + "только снижать."
                 )
                 .font(.caption)
-                .foregroundColor(.secondary)
-            } else {
-                Text(
-                    "Торг закончен. Можно принять "
-                    + "последнее предложение или отказаться."
-                )
                 .foregroundColor(.secondary)
             }
         }
     }
-
+    
+    
+    
     private func saleSection(
         _ order: CustomerOrder
     ) -> some View {
@@ -293,23 +279,39 @@ struct MarketView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(
-                farm.count(order.item) < order.quantity
+                !market.agreed || !canSellOrder(order)
             )
-
-            if farm.count(order.item) < order.quantity {
-                Text(
-                    "Не хватает: "
-                    + "\(order.quantity - farm.count(order.item))"
-                    + " шт."
-                )
-                .font(.caption)
-                .foregroundColor(.secondary)
+            if !market.agreed {
+                Text("Сначала договорись о цене.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
-
+            
+            if !canSellOrder(order) {
+                Text("Не хватает товаров для заказа.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
             Button("Отказать покупателю") {
                 market.refuseCustomer()
             }
             .foregroundColor(.red)
         }
+    }
+    
+    private func canSellOrder(
+        _ order: CustomerOrder
+    ) -> Bool {
+        for (index, item) in order.items.enumerated() {
+            let needed = order.quantities[index]
+            let available = farm.count(item)
+            
+            if available < needed {
+                return false
+            }
+        }
+        
+        return true
     }
 }

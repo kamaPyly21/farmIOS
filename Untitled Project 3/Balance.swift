@@ -5,7 +5,7 @@ enum Balance {
     // Скорость игры (чем больше, тем медленнее)
     static let growthTimeScale = 2.5
     static let animalTimeScale = 3.0
-    static let regrowTime = 300.0
+    static let regrowTime = 400.0
     
     // Пекарня и уголь
     static let bakeTime = 20.0

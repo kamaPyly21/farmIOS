@@ -10,11 +10,22 @@ enum CustomerPhase {
 
 struct CustomerOrder {
     let name: String
-    let item: Item
-    let quantity: Int
+    let items: [Item]
+    let quantities: [Int]
     let basePrice: Int
-}
 
+    var totalQuantity: Int {
+        quantities.reduce(0, +)
+    }
+
+    func quantity(for item: Item) -> Int {
+        guard let index = items.firstIndex(of: item) else {
+            return 0
+        }
+
+        return quantities[index]
+    }
+}
 final class MarketState: ObservableObject {
     static let shared = MarketState()
 
@@ -52,7 +63,7 @@ final class MarketState: ObservableObject {
 
     private let names = [
         "Трамп", "Мелстрой", "Камиль",
-        "Рустам", "Илон Маск", "Товарищ Майор"
+        "Рустам", "Илон Маск", "Товарищ Майор", "Тимур"
     ]
 
     private init() {}
@@ -206,6 +217,14 @@ final class MarketState: ObservableObject {
             products.append(contentsOf: [.milk, .beef])
         }
 
+        if farm.dairyOwned {
+            products.append(.cheese)
+        }
+
+        if farm.bakeryLevel >= 1 {
+            products.append(.pie)
+        }
+
         return products
     }
 
@@ -214,44 +233,71 @@ final class MarketState: ObservableObject {
     ) -> ClosedRange<Int> {
         switch item {
         case .wheat, .carrot, .cabbage:
-            return 3...6
-        case .cheese, .pie:
-            return 1...2
+            return 2...10
+        case .bread:
+            return 1...8
+        case .milk:
+            return 1...6
         case .egg:
-            return 2...5
-
-        case .bread, .milk, .wool:
-            return 1...3
-
+            return 2...10
+        case .wool:
+            return 1...6
+        case .cheese:
+            return 1...4
+        case .pie:
+            return 1...4
         case .chickenMeat, .mutton, .beef:
-            return 1...2
-
+            return 1...3
         case .coal:
             return 1...1
         }
     }
-
+   
+    
     private func createCustomer(now: Date) {
         let farm = GameState.shared
 
-        guard let item = availableProducts().randomElement(),
-              let name = names.randomElement() else {
+        guard let name = names.randomElement() else {
             return
         }
 
-        let quantity = Int.random(
-            in: quantityRange(for: item)
+        let products = availableProducts()
+
+        guard !products.isEmpty else {
+            return
+        }
+
+        // Один или два разных товара в заказе.
+        let itemCount = Int.random(in: 1...2)
+
+        let selectedItems = Array(
+            products.shuffled().prefix(itemCount)
         )
 
-        let basePrice = max(
-            1,
-            Int(
+        var selectedQuantities: [Int] = []
+
+        for item in selectedItems {
+            let quantity = Int.random(
+                in: quantityRange(for: item)
+            )
+
+            selectedQuantities.append(quantity)
+        }
+
+        var basePrice = 0
+
+        for (index, item) in selectedItems.enumerated() {
+            let quantity = selectedQuantities[index]
+
+            basePrice += Int(
                 (
                     Double(item.price * quantity)
                     * farm.sellMultiplier
                 ).rounded()
             )
-        )
+        }
+
+        basePrice = max(1, basePrice)
 
         let firstOffer = max(
             1,
@@ -275,8 +321,8 @@ final class MarketState: ObservableObject {
 
         order = CustomerOrder(
             name: name,
-            item: item,
-            quantity: quantity,
+            items: selectedItems,
+            quantities: selectedQuantities,
             basePrice: basePrice
         )
 
@@ -325,11 +371,12 @@ final class MarketState: ObservableObject {
     }
 
     // MARK: - Переговоры
-
     func proposePrice() {
         update()
 
-        guard canNegotiate else { return }
+        guard canNegotiate else {
+            return
+        }
 
         let proposed = askingPrice
 
@@ -343,7 +390,6 @@ final class MarketState: ObservableObject {
             message =
                 "Договорились! Беру за \(proposed) монет."
 
-            // Не менее 10 секунд на подтверждение сделки.
             let graceDeadline = Date().addingTimeInterval(10)
 
             if phaseEndsAt < graceDeadline {
@@ -354,7 +400,6 @@ final class MarketState: ObservableObject {
             return
         }
 
-        // Слишком высокая цена может сорвать сделку.
         if Double(proposed) > Double(buyerBudget) * 1.25 {
             beginLeaving(
                 angry: true,
@@ -365,7 +410,6 @@ final class MarketState: ObservableObject {
             return
         }
 
-        // Покупатель делает встречное предложение.
         let counterOffer = min(
             buyerBudget,
             max(
@@ -381,10 +425,15 @@ final class MarketState: ObservableObject {
                 "Дорого. Могу предложить "
                 + "\(counterOffer) монет."
         } else {
-            message =
-                "\(counterOffer) монет — моё последнее предложение."
+            beginLeaving(
+                angry: true,
+                message:
+                    "Я больше не буду торговаться. До свидания!",
+                now: Date()
+            )
         }
     }
+  
 
     // MARK: - Продажа
 
@@ -392,22 +441,30 @@ final class MarketState: ObservableObject {
         update()
 
         guard phase == .waiting,
+              agreed,
               let currentOrder = order else {
             return
         }
 
         let farm = GameState.shared
 
-        guard farm.count(currentOrder.item)
-                >= currentOrder.quantity else {
-            message = "Сначала подготовьте весь заказ."
-            return
+        for (index, item) in currentOrder.items.enumerated() {
+            let needed = currentOrder.quantities[index]
+            let available = farm.count(item)
+
+            guard available >= needed else {
+                message = "Сначала подготовьте весь заказ."
+                return
+            }
+        }
+
+        for (index, item) in currentOrder.items.enumerated() {
+            let needed = currentOrder.quantities[index]
+
+            farm.inventory[item, default: 0] -= needed
         }
 
         let earned = currentOffer
-
-        farm.inventory[currentOrder.item, default: 0]
-            -= currentOrder.quantity
 
         farm.coins += earned
         QuestState.shared.recordSale(revenue: earned)
